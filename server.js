@@ -2,8 +2,13 @@ import express from "express";
 import axios from "axios";
 import cors from "cors";
 import dotenv from 'dotenv';
+import dns from 'dns';
+import { promisify } from 'util';
 
 dotenv.config();
+
+// Converte a função de callback do dns para uma que usa Promises (async/await)
+const dnsLookup = promisify(dns.lookup);
 
 const app = express();
 const PORT = 5000;
@@ -42,18 +47,16 @@ async function queryVirusTotal(ip) {
     // Retorna o número de "votos" maliciosos
     return response.data.data.attributes.last_analysis_stats.malicious;
   } catch (error) {
-    // 404 no VirusTotal significa "IP nunca visto", não é um erro
     if (error.response && error.response.status === 404) {
       return 0;
     }
     console.error(`Erro no VirusTotal para ${ip}:`, error.message);
-    return 0; // Retorna 0 em caso de erro
+    return 0; 
   }
 }
 
 async function aggregateIpCheck(ip) {
   try {
-    // Chama AMBAS as APIs em PARALELO para economizar tempo
     const [abuseScore, vtMaliciousCount] = await Promise.all([
       queryAbuseIPDB(ip),
       queryVirusTotal(ip)
@@ -87,16 +90,13 @@ app.post("/check-ip-list", async (req, res) => {
   try {
     const results = [];
     
-    // Faz o loop DENTRO do backend
-    // Este loop é sequencial (um 'await' de cada vez)
-    // Isso é BOM para não estourar o limite de 4 reqs/min do VirusTotal.
     for (const ip of ips) {
       const result = await aggregateIpCheck(ip);
       results.push(result);
     }
 
-    console.log("Processamento concluído.");
-    res.json(results); // Devolve o array de resultados COMPLETO
+    // console.log("Processamento concluído.");
+    res.json(results); 
 
   } catch (error) {
     console.error("Erro no processamento em lote:", error.message);
@@ -110,23 +110,38 @@ async function queryIpInfo(query) {
     console.error("Chave do IPInfo não configurada.");
     return { ip: query, error: "Chave não configurada no servidor." };
   }
-  
-  // A URL base do ipinfo.io
-  const url = `https://ipinfo.io/${query}/json?token=${IPINFO_KEY}`;
-  
+  let ipParaConsultar;
+
+  // Verifica se a query já é um IP
+  const isIP = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(query);
+
+  if (isIP) {
+    ipParaConsultar = query; // Já é um IP, pode usar
+  } else {
+    // NÃO é um IP (é um domínio), então resolvemos o DNS primeiro
+    try {
+      const { address } = await dnsLookup(query);
+      ipParaConsultar = address;
+      console.log(`Domínio ${query} resolvido para IP: ${ipParaConsultar}`);
+    } catch (dnsError) {
+      console.error(`Erro no DNS lookup para ${query}:`, dnsError.message);
+      return { query: query, error: "Falha ao resolver o domínio (DNS)." };
+    }
+  }
+
+  const url = `https://ipinfo.io/${ipParaConsultar}/json?token=${IPINFO_KEY}`;
+
   try {
     const response = await axios.get(url);
-    // Adicionamos 'query' na resposta para sabermos quem foi consultado
     return { ...response.data, query: query }; 
   } catch (error) {
-    console.error(`Erro consultando IPInfo para ${query}:`, error.message);
-    return { query: query, error: "Falha ao buscar dados." };
+    console.error(`Erro consultando IPInfo para ${ipParaConsultar}:`, error.message);
+    return { query: query, ip: ipParaConsultar, error: "Falha ao buscar dados de geolocalização para o IP." };
   }
 }
 
-// SUBSTITUA o endpoint /get-ip-info-list por este:
 app.post("/get-ip-info-list", async (req, res) => {
-  const { ips } = req.body; // 'ips' é um array de IPs e Domínios
+  const { ips } = req.body; 
   if (!ips || !Array.isArray(ips)) {
     return res.status(400).json({ error: "O corpo deve ser um array 'ips'." });
   }
@@ -135,55 +150,18 @@ app.post("/get-ip-info-list", async (req, res) => {
 
   try {
     const results = [];
-    // Faz o loop e chama a nova função (queryIpInfo)
+    
     for (const query of ips) {
       const result = await queryIpInfo(query);
       results.push(result);
     }
     
-    console.log("Processamento de geo-info concluído.");
-    console.log("Resultado: ",results);
+    // console.log("Resultado: ",results);
     res.json(results); // Envia o array de resultados
 
   } catch (error) {
     console.error("Erro no processamento em lote /get-ip-info-list:", error.message);
     res.status(500).json({ error: "Erro ao processar lista de geo-info." });
-  }
-});
-
-async function queryIpApi(query) {
-  const url = `https://ip-api.com/json/${query}`;
-  try {
-    const response = await axios.get(url, {
-      params: {
-        // Adicione os campos que seu componente precisa
-        fields: 'query,country,city,region,lat,lon,isp,status,message' 
-      },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
-      }
-    });
-    return response.data;
-  } catch (error) {
-    console.error(`Erro no ip-api para ${query}:`, error.message);
-    return { query: query, status: 'fail', message: 'Erro no servidor backend' };
-  }
-}
-
-
-// --- 2. ADICIONE A NOVA ROTA ESPECÍFICA (GET) ---
-app.get("/get-geo-for-query/:query", async (req, res) => {
-  const { query } = req.params;
-
-  console.log(`Processando geo-query única para: ${query}`);
-  
-  try {
-    // Reutiliza a função helper que já funciona
-    const result = await queryIpApi(query); 
-    res.json(result);
-  } catch (error) {
-    console.error(`Erro na query única ${query}:`, error.message);
-    res.status(500).json({ error: "Erro ao processar a query." });
   }
 });
 
