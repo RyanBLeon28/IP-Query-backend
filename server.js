@@ -20,6 +20,7 @@ const ABUSE_API_KEY = process.env.ABUSE_API_KEY;
 const VT_API_KEY = process.env.VT_API_KEY;
 const IPINFO_KEY = process.env.IPINFO_KEY;
 
+// --- Requisição ao AbuseIPDB ---
 async function queryAbuseIPDB(ip) {
   try {
     const response = await axios.get("https://api.abuseipdb.com/api/v2/check", {
@@ -33,6 +34,7 @@ async function queryAbuseIPDB(ip) {
   }
 }
 
+// --- Requisição ao Virus Total ---
 async function queryVirusTotal(ip) {
   try {
     const response = await axios.get(
@@ -55,6 +57,7 @@ async function queryVirusTotal(ip) {
   }
 }
 
+// --- Função que consulta as API públicas ---
 async function aggregateIpCheck(ip) {
   try {
     const [abuseScore, vtMaliciousCount] = await Promise.all([
@@ -77,7 +80,7 @@ async function aggregateIpCheck(ip) {
   }
 }
 
-// --- ENDPOINT PRINCIPAL: Processamento em Lote (Batch) ---
+// --- ENDPOINT de consulta de popularidade dos IPs ---
 app.post("/check-ip-list", async (req, res) => {
   const { ips } = req.body; // Recebe o array de IPs
 
@@ -104,7 +107,7 @@ app.post("/check-ip-list", async (req, res) => {
   }
 });
 
-// --- ENDPOINT DE LOTE GEOLOCALIZAÇÃO ---
+// --- Requisição a API IP INFO que retorna dados do IP ---
 async function queryIpInfo(query) {
   if (!IPINFO_KEY) {
     console.error("Chave do IPInfo não configurada.");
@@ -116,9 +119,8 @@ async function queryIpInfo(query) {
   const isIP = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(query);
 
   if (isIP) {
-    ipParaConsultar = query; // Já é um IP, pode usar
+    ipParaConsultar = query;
   } else {
-    // NÃO é um IP (é um domínio), então resolvemos o DNS primeiro
     try {
       const { address } = await dnsLookup(query);
       ipParaConsultar = address;
@@ -140,6 +142,7 @@ async function queryIpInfo(query) {
   }
 }
 
+// --- ENDPOINT DE GEOLOCALIZAÇÃO ---
 app.post("/get-ip-info-list", async (req, res) => {
   const { ips } = req.body; 
   if (!ips || !Array.isArray(ips)) {
