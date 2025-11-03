@@ -82,24 +82,25 @@ async function aggregateIpCheck(ip) {
 
 // --- ENDPOINT de consulta de popularidade dos IPs ---
 app.post("/check-ip-list", async (req, res) => {
-  const { ips } = req.body; // Recebe o array de IPs
+  const { ips } = req.body;
 
   if (!ips || !Array.isArray(ips)) {
     return res.status(400).json({ error: "O corpo da requisição deve ser um objeto com um array 'ips'." });
   }
 
-  console.log(`Processando lista de ${ips.length} IPs...`);
+  // Remove duplicados e limpa espaços
+  const uniqueIps = [...new Set(ips.map(ip => ip.trim()))];
+  console.log(`Recebidos ${ips.length} IPs, processando ${uniqueIps.length} únicos...`);
 
   try {
     const results = [];
     
-    for (const ip of ips) {
+    for (const ip of uniqueIps) {
       const result = await aggregateIpCheck(ip);
       results.push(result);
     }
 
-    // console.log("Processamento concluído.");
-    res.json(results); 
+    res.json(results);
 
   } catch (error) {
     console.error("Erro no processamento em lote:", error.message);
