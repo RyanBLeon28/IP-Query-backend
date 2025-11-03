@@ -10,6 +10,9 @@ GET /get-geo-for-query/:query: Recebe um único IP ou domínio (da barra de pesq
 
 GET /health: Rota simples de "health check" para monitoramento da hospedagem.
 
+## Instalar dependências
+npm install
+
 ## Rodar o backend
 npm start
 
